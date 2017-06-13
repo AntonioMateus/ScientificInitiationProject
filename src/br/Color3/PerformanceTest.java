@@ -155,7 +155,33 @@ public class PerformanceTest {
 
         try {
             conn = DatabaseConnection.neo4jConnect();
+            Statement deleteStatement = conn.createStatement();
+            deleteStatement.execute("MATCH (n) OPTIONAL MATCH (n)-[r]-() DELETE n, r");
+            Statement createStatement = conn.createStatement();
+            String createQuery = "CREATE ";
             initialTime = System.currentTimeMillis();
+            if (imageQuantity != 0) {
+                int index = 1;
+                for (index = 1; index < imageQuantity; index++) {
+                    createQuery = createQuery +
+                            "(img" + index + ":image {idImage: " + index + ", pathImage: 'imagem/" + index + ".jpg'} ), ";
+                }
+                createQuery = createQuery +
+                        "(img" + index + ":image {idImage: " + index + ", pathImage: 'imagem/" + index + ".jpg'} )";
+                createStatement.execute(createQuery);
+                createStatement.execute("CREATE INDEX ON :image (idImage)");
+                createStatement.execute("CREATE INDEX ON :image (pathImage)");
+
+                for (int origin = 1; origin <= imageQuantity; origin++) {
+                    for (int destiny = 1; destiny <= imageQuantity; destiny++) {
+                        createStatement.execute("MATCH (origin:image {idImage: " + origin + "}) USING INDEX origin:image(idImage) " +
+                                "MATCH (destiny:image {idImage: " + destiny + "}) USING INDEX destiny:image(idImage) " +
+                                "CREATE (origin)-[rel:distance { dist: " + randomValues[origin-1][destiny-1] + " }]->(destiny) " +
+                                "RETURN rel");
+                    }
+                }
+            }
+            endTime = System.currentTimeMillis();
         }
         catch (Exception ex) {
             ex.printStackTrace();
@@ -175,12 +201,53 @@ public class PerformanceTest {
         return interval;
     }
 
+    private static double searchForImageNeo4j (String path, int similarQuantity) {
+        long initialTime = 0;
+        long endTime = initialTime;
+        double interval = 0;
+        String searchPath = "";
+        Connection conn = null;
+
+        try {
+            conn = DatabaseConnection.neo4jConnect();
+            initialTime = System.currentTimeMillis();
+            String similarImageQuery = "MATCH (p1:image {pathImage: '" + path + "' })-[d:distance]->(p2:image) " +
+                    "USING INDEX p1:image(pathImage) " +
+                    "WITH p2, d.dist AS sim " +
+                    "ORDER BY sim DESC " +
+                    "LIMIT " + similarQuantity + " " +
+                    "RETURN p2.pathImage AS result";
+            Statement searchSimilarImages = conn.createStatement();
+            ResultSet rs2 = searchSimilarImages.executeQuery(similarImageQuery);
+            while (rs2.next()) {
+                searchPath = rs2.getString("result");
+            }
+            endTime = System.currentTimeMillis();
+            interval = ((double) endTime - initialTime)/1000;
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+            interval = 0;
+        }
+        finally {
+            try {
+                if (conn != null) conn.close();
+            }
+            catch (SQLException ex) {
+                ex.printStackTrace();
+            }
+        }
+
+        return interval;
+    }
+
     public static void main (String[] args) {
         try {
             generateRandomValues(10);
 //            createStructuresMysql();
 //            searchForImageMysql("imagem/1.jpg", 5);
             createStructuresNeo4j();
+            searchForImageNeo4j("imagem/1.jpg", 5);
         }
         catch (Exception ex) {
             ex.printStackTrace();
