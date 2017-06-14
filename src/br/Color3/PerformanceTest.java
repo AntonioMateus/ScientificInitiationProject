@@ -7,6 +7,8 @@ import java.sql.Statement;
 import java.text.DecimalFormat;
 import java.util.Random;
 
+import com.mongodb.MongoClient;
+
 public class PerformanceTest {
     private static String[][] randomValues;
 
@@ -241,13 +243,47 @@ public class PerformanceTest {
         return interval;
     }
 
+    private static double createStructuresMongodb () {
+        MongoClient conn = null;
+        long initialTime = 0;
+        long endTime = initialTime;
+        int imageQuantity = randomValues.length;
+
+        try {
+            conn = DatabaseConnection.mongoConnect();
+            if (conn != null) {
+                System.out.println("Sucesso ao conectar!");
+            }
+            initialTime = System.currentTimeMillis();
+            /* TODO */
+            endTime = System.currentTimeMillis();
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+            endTime = System.currentTimeMillis();
+            return ((double) endTime - initialTime) / 1000;
+        }
+        finally {
+            try {
+                if (conn != null) conn.close();
+            }
+            catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+
+        double interval = ((double) endTime - initialTime)/1000;
+        return interval;
+    }
+
     public static void main (String[] args) {
         try {
             generateRandomValues(10);
 //            createStructuresMysql();
 //            searchForImageMysql("imagem/1.jpg", 5);
-            createStructuresNeo4j();
-            searchForImageNeo4j("imagem/1.jpg", 5);
+//            createStructuresNeo4j();
+//            searchForImageNeo4j("imagem/1.jpg", 5);
+            createStructuresMongodb();
         }
         catch (Exception ex) {
             ex.printStackTrace();

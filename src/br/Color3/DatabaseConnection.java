@@ -1,7 +1,11 @@
 package br.Color3;
 
+//packages used by Neo4j and MySQL
 import java.sql.Connection;
 import java.sql.DriverManager;
+
+//packages used only by MongoDB
+import com.mongodb.MongoClient;
 
 public class DatabaseConnection {
     //MySQL JDBC driver name and database URL
@@ -40,5 +44,18 @@ public class DatabaseConnection {
         }
 
         return conn;
+    }
+
+    public static MongoClient mongoConnect() {
+        MongoClient mongoClient = null; //localhost at port 27017
+
+        try {
+            mongoClient = new MongoClient("localhost", 27017);
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        return mongoClient;
     }
 }
