@@ -8,6 +8,13 @@ import java.text.DecimalFormat;
 import java.util.Random;
 
 import com.mongodb.MongoClient;
+import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoCollection;
+import org.bson.Document;
+import java.util.List;
+import java.util.ArrayList;
 
 public class PerformanceTest {
     private static String[][] randomValues;
@@ -74,7 +81,9 @@ public class PerformanceTest {
                 for (int origin = 1; origin <= imageQuantity; origin++) {
                     for (int destiny = 1; destiny <= imageQuantity; destiny++) {
 //                        System.out.println("Inserindo relacionamento entre " + origin +" e " +destiny);
-                        insertOperation.execute("INSERT INTO mydb.image_distance (image_originId,image_destinyId,distance) VALUES "+"("+origin+","+destiny+","+randomValues[origin-1][destiny-1]+");");
+                        if (destiny != origin) {
+                            insertOperation.execute("INSERT INTO mydb.image_distance (image_originId,image_destinyId,distance) VALUES "+"("+origin+","+destiny+","+randomValues[origin-1][destiny-1]+");");
+                        }
                     }
                 }
             }
@@ -126,9 +135,10 @@ public class PerformanceTest {
                     "LIMIT " + similarImageQuantity;
             Statement searchSimilarImages = conn.createStatement();
             ResultSet rs2 = searchSimilarImages.executeQuery(SimilarImageQuery);
+            System.out.println("Recuperação feita pelo MySQL");
             while (rs2.next()) {
                 searchPath = rs2.getString("result");
-//                System.out.println("Imagem encontrada: " + searchPath);
+                System.out.println(searchPath);
             }
             finalTime = System.currentTimeMillis();
             interval = ((double) finalTime - initialTime)/1000;
@@ -216,13 +226,15 @@ public class PerformanceTest {
             String similarImageQuery = "MATCH (p1:image {pathImage: '" + path + "' })-[d:distance]->(p2:image) " +
                     "USING INDEX p1:image(pathImage) " +
                     "WITH p2, d.dist AS sim " +
-                    "ORDER BY sim DESC " +
+                    "ORDER BY sim ASC " +
                     "LIMIT " + similarQuantity + " " +
                     "RETURN p2.pathImage AS result";
             Statement searchSimilarImages = conn.createStatement();
             ResultSet rs2 = searchSimilarImages.executeQuery(similarImageQuery);
+            System.out.println("Recuperação feita pelo Neo4j");
             while (rs2.next()) {
                 searchPath = rs2.getString("result");
+                System.out.println(searchPath);
             }
             endTime = System.currentTimeMillis();
             interval = ((double) endTime - initialTime)/1000;
@@ -251,11 +263,31 @@ public class PerformanceTest {
 
         try {
             conn = DatabaseConnection.mongoConnect();
-            if (conn != null) {
-                System.out.println("Sucesso ao conectar!");
-            }
             initialTime = System.currentTimeMillis();
-            /* TODO */
+
+            MongoDatabase database = conn.getDatabase("mydb"); //access a database named mydb
+            MongoCollection<Document> imageCollection = database.getCollection("images"); //create a collection named "images"
+            // inside mydb database
+            imageCollection.deleteMany(new Document()); //delete all documents from image collection
+            List<Document> images = new ArrayList<>();
+            List<Document> relatedImages = null;
+            Document image = null;
+
+            for (int index = 1; index <= imageQuantity; index++) {
+                relatedImages = new ArrayList<>();
+                for (int related = 1; related <= imageQuantity; related++) {
+                    if (related != index) {
+                        relatedImages.add(new Document("relatedId", related)
+                                        .append("dist", randomValues[index-1][related-1]));
+                    }
+                }
+                image = new Document("_id", index)
+                        .append("pathImage", "imagem/"+index+".jpg")
+                        .append("distances", relatedImages);
+                images.add(image);
+            }
+            imageCollection.insertMany(images);
+
             endTime = System.currentTimeMillis();
         }
         catch (Exception ex) {
@@ -276,14 +308,77 @@ public class PerformanceTest {
         return interval;
     }
 
+    private static double searchForImageMongodb (String path, int similarQuantity) {
+        long initialTime = 0;
+        long endTime = initialTime;
+        double interval = 0;
+        String searchedPath = "";
+        MongoClient conn = null;
+
+        try {
+            conn = DatabaseConnection.mongoConnect();
+            initialTime = System.currentTimeMillis();
+
+            MongoDatabase database = conn.getDatabase("mydb");
+            MongoCollection imageCollection = database.getCollection("images");
+
+            List<Document> parameters = new ArrayList<>(); //aggregate parameters
+            parameters.add(new Document("$match", new Document("pathImage", path)));
+            parameters.add(new Document("$unwind", "$distances"));
+            parameters.add(new Document("$sort", new Document("distances.dist", 1)));
+            parameters.add(new Document("$limit", similarQuantity));
+            parameters.add(new Document("$group", new Document("_id", "$_id")
+            .append("result", new Document("$push", "$distances.relatedId"))));
+            parameters.add(new Document("$project", new Document("_id", 0).append("result", 1)));
+
+            AggregateIterable result = imageCollection.aggregate(parameters);
+            MongoCursor<Document> cursor = result.iterator();
+            try {
+                System.out.println("Recuperação feita pelo MongoDB");
+                while (cursor.hasNext()) {
+                    List<Integer> similarImages = (List<Integer>) cursor.next().get("result");
+                    for (int index = 0; index < similarImages.size(); index++) {
+                        Integer similarId = similarImages.get(index);
+                        Document image = (Document) imageCollection.find(new Document("_id", similarId)).first();
+                        searchedPath = image.getString("pathImage");
+                        System.out.println(searchedPath);
+                    }
+                }
+            }
+            finally {
+                cursor.close();
+            }
+
+            endTime = System.currentTimeMillis();
+            interval = ((double) endTime - initialTime)/1000;
+        }
+        catch (Exception ex) {
+            ex.printStackTrace();
+            interval = 0;
+        }
+        finally {
+            try {
+                if (conn != null) conn.close();
+            }
+            catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+
+        return interval;
+    }
+
     public static void main (String[] args) {
         try {
             generateRandomValues(10);
 //            createStructuresMysql();
-//            searchForImageMysql("imagem/1.jpg", 5);
-//            createStructuresNeo4j();
-//            searchForImageNeo4j("imagem/1.jpg", 5);
+            createStructuresNeo4j();
             createStructuresMongodb();
+//            searchForImageMysql("imagem/1.jpg", 5);
+//            System.out.println();
+            searchForImageNeo4j("imagem/1.jpg", 5);
+            System.out.println();
+            searchForImageMongodb("imagem/1.jpg", 5);
         }
         catch (Exception ex) {
             ex.printStackTrace();
